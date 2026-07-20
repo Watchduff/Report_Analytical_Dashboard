@@ -1,0 +1,51 @@
+[theme]
+baseRadius = "10px"
+buttonRadius = "8px"
+showWidgetBorder = true
+showSidebarBorder = true
+linkUnderline = false
+
+font = "Montserrat:https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap"
+headingFont = "Montserrat:https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&display=swap"
+baseFontSize = 15
+baseFontWeight = 400
+headingFontWeights = [700, 700, 600, 600, 500, 500]
+
+redColor = "#BA0C2F"
+orangeColor = "#C69214"
+grayColor = "#6B7280"
+
+chartCategoricalColors = [
+    "#BA0C2F", "#C69214", "#8A0923", "#D9A441", "#6B7280",
+    "#E8899B", "#E8C77A", "#5C0719", "#C9CED6", "#A6ABB2",
+]
+
+[theme.light]
+primaryColor = "#BA0C2F"
+backgroundColor = "#F0F2F5"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+linkColor = "#BA0C2F"
+borderColor = "#E2E4E8"
+
+[theme.dark]
+primaryColor = "#BA0C2F"
+backgroundColor = "#1C1B1D"
+secondaryBackgroundColor = "#262528"
+textColor = "#ECECEC"
+linkColor = "#E0899B"
+borderColor = "#3A383C"
+
+[theme.light.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F4F6"
+textColor = "#0F172A"
+borderColor = "#E2E4E8"
+primaryColor = "#BA0C2F"
+
+[theme.dark.sidebar]
+backgroundColor = "#262528"
+secondaryBackgroundColor = "#2E2C31"
+textColor = "#ECECEC"
+borderColor = "#3A383C"
+primaryColor = "#BA0C2F"
