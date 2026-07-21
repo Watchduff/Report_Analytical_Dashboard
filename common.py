@@ -185,8 +185,16 @@ def inject_base_css(pal):
             background-color: {BYUH_RED};
         }}
 
-        /* Section subheaders */
-        h3 {{ color: {BYUH_RED}; }}
+        /* Section subheaders: accent bar rather than solid red text, so the
+           brand color reads as an intentional accent instead of repeating
+           on every section title. */
+        h3 {{
+            color: {pal["text"]};
+            font-weight: 600;
+            border-left: 3px solid {BYUH_RED};
+            padding-left: 0.65rem;
+            margin-top: 0.5rem;
+        }}
         </style>
         """,
         unsafe_allow_html=True,

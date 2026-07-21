@@ -14,7 +14,7 @@ from common import (
 theme_type, pal = get_palette()
 inject_base_css(pal)
 
-st.markdown("<h1 class='main-header'>📊 Report Analytics Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>Report Analytics Dashboard</h1>", unsafe_allow_html=True)
 st.markdown("<p class='main-subheader'>BYU–Hawaii · Office of Information Technology</p>", unsafe_allow_html=True)
 
 # -----------------------------
@@ -31,7 +31,15 @@ if st.session_state.get("report_bytes"):
     size_kb = len(st.session_state["report_bytes"]) / 1024
     with st.container(border=True):
         icon_col, name_col, remove_col = st.columns([0.06, 0.84, 0.10])
-        icon_col.markdown("📊")
+        icon_col.markdown(
+            f"""<svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                 style="margin-top:4px;">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                      stroke="{BYUH_RED}" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M14 2v6h6" stroke="{BYUH_RED}" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>""",
+            unsafe_allow_html=True,
+        )
         name_col.markdown(
             f"**{st.session_state['report_filename']}**  \n"
             f"<span style='color:{pal['muted']}; font-size:0.8rem;'>{size_kb:,.1f} KB</span>",
@@ -68,10 +76,25 @@ def looks_like_ticket_sheet(df):
     cols = set(df.columns.astype(str))
     return {"Status", "Category"}.issubset(cols) and len(df) > 0
 
+def find_header_row(sheet, max_scan=15):
+    """Some TDX weekly exports put a title row (e.g. the report name) above
+    the real column headers, which makes pandas read that title as the
+    header and every column comes back as "Unnamed: N". Scan the first few
+    rows for the one that actually contains "Status"/"Category" and use it
+    as the header instead of assuming row 0."""
+    preview = pd.read_excel(excel_data, sheet_name=sheet, header=None, nrows=max_scan)
+    for i, row in preview.iterrows():
+        values = {str(v).strip() for v in row.tolist()}
+        if {"Status", "Category"}.issubset(values):
+            return i
+    return 0
+
 candidate_sheets = []
+header_rows = {}
 for s in excel_data.sheet_names:
     try:
-        preview = pd.read_excel(excel_data, sheet_name=s)
+        header_rows[s] = find_header_row(s)
+        preview = pd.read_excel(excel_data, sheet_name=s, header=header_rows[s])
         if looks_like_ticket_sheet(preview):
             candidate_sheets.append(s)
     except Exception:
@@ -88,7 +111,7 @@ sheet_name = st.selectbox(
     index=excel_data.sheet_names.index(default_sheet),
 )
 
-df = pd.read_excel(excel_data, sheet_name=sheet_name)
+df = pd.read_excel(excel_data, sheet_name=sheet_name, header=header_rows.get(sheet_name, 0))
 df.columns = [str(c).strip() for c in df.columns]
 
 if df.empty:
@@ -302,14 +325,37 @@ if "Trends" in tab_map:
                 trend = ts.groupby(["_period", "Status"]).size().reset_index(name="count")
                 fig = px.bar(
                     trend, x="_period", y="count", color="Status",
-                    color_discrete_map=STATUS_COLORS, barmode="stack",
+                    color_discrete_map=STATUS_COLORS, barmode="stack", text="count",
+                )
+                fig.update_traces(textposition="inside", texttemplate="%{text}")
+
+                totals = trend.groupby("_period")["count"].sum().reset_index()
+                fig.add_scatter(
+                    x=totals["_period"], y=totals["count"], mode="text",
+                    text=totals["count"], textposition="top center",
+                    showlegend=False, hoverinfo="skip",
                 )
             else:
                 trend = ts.groupby("_period").size().reset_index(name="count")
-                fig = px.line(trend, x="_period", y="count", markers=True, color_discrete_sequence=[BYUH_RED])
+                fig = px.line(
+                    trend, x="_period", y="count", markers=True,
+                    color_discrete_sequence=[BYUH_RED], text="count",
+                )
+                fig.update_traces(textposition="top center")
 
             chart_theme(fig, pal, xaxis_title="Date", yaxis_title="Ticket Count")
             st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("View exact numbers"):
+                table = trend.pivot_table(
+                    index="_period", columns="Status" if has_status else None,
+                    values="count", aggfunc="sum", fill_value=0,
+                ) if has_status else trend.set_index("_period")
+                table.index = table.index.date
+                table.index.name = "Date"
+                if has_status:
+                    table["Total"] = table.sum(axis=1)
+                st.dataframe(table, use_container_width=True)
         else:
             st.info("No valid Modified dates found in the current selection.")
 

@@ -13,7 +13,7 @@ from common import BYUH_RED, BYUH_GOLD, STATUS_COLORS, get_palette, chart_theme,
 theme_type, pal = get_palette()
 inject_base_css(pal)
 
-st.markdown("<h1 class='main-header'>📊 Report Summary</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>Report Summary</h1>", unsafe_allow_html=True)
 st.markdown(
     "<p class='main-subheader'>BYU–Hawaii · Office of Information Technology — read-only view</p>",
     unsafe_allow_html=True,
@@ -98,11 +98,23 @@ if has_modified and filtered_df["Modified"].notna().any():
         trend = ts.groupby(["_period", "Status"]).size().reset_index(name="count")
         fig = px.bar(
             trend, x="_period", y="count", color="Status",
-            color_discrete_map=STATUS_COLORS, barmode="stack",
+            color_discrete_map=STATUS_COLORS, barmode="stack", text="count",
+        )
+        fig.update_traces(textposition="inside", texttemplate="%{text}")
+
+        totals = trend.groupby("_period")["count"].sum().reset_index()
+        fig.add_scatter(
+            x=totals["_period"], y=totals["count"], mode="text",
+            text=totals["count"], textposition="top center",
+            showlegend=False, hoverinfo="skip",
         )
     else:
         trend = ts.groupby("_period").size().reset_index(name="count")
-        fig = px.line(trend, x="_period", y="count", markers=True, color_discrete_sequence=[BYUH_RED])
+        fig = px.line(
+            trend, x="_period", y="count", markers=True,
+            color_discrete_sequence=[BYUH_RED], text="count",
+        )
+        fig.update_traces(textposition="top center")
 
     chart_theme(fig, pal, xaxis_title="Date", yaxis_title="Ticket Count")
     st.plotly_chart(fig, use_container_width=True)
