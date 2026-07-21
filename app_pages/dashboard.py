@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+import db
 from common import (
     BYUH_RED, BYUH_GOLD, STATUS_COLORS,
     get_palette, chart_theme, normalize_text_column, inject_base_css,
@@ -18,105 +19,155 @@ st.markdown("<h1 class='main-header'>Report Analytics Dashboard</h1>", unsafe_al
 st.markdown("<p class='main-subheader'>BYU–Hawaii · Office of Information Technology</p>", unsafe_allow_html=True)
 
 # -----------------------------
-# File upload
+# Data source: upload a new report (auto-saved to the report library), or
+# reload reports already saved there — including combining several at once.
+# Both paths converge on a single `df` below.
 # -----------------------------
-# st.file_uploader loses its file when navigating to another page and back
-# (the widget is torn down on unmount), so the raw bytes are cached in session
-# state. Once a file is cached, a custom chip stands in for the native
-# uploader so the page still visibly shows "a file is loaded" instead of an
-# empty drop zone; the "x" clears it and brings the real uploader back.
-st.markdown("Upload an Excel report (.xlsx)")
-
-if st.session_state.get("report_bytes"):
-    size_kb = len(st.session_state["report_bytes"]) / 1024
-    with st.container(border=True):
-        icon_col, name_col, remove_col = st.columns([0.06, 0.84, 0.10])
-        icon_col.markdown(
-            f"""<svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-                 style="margin-top:4px;">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-                      stroke="{BYUH_RED}" stroke-width="1.5" stroke-linejoin="round"/>
-                <path d="M14 2v6h6" stroke="{BYUH_RED}" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>""",
-            unsafe_allow_html=True,
-        )
-        name_col.markdown(
-            f"**{st.session_state['report_filename']}**  \n"
-            f"<span style='color:{pal['muted']}; font-size:0.8rem;'>{size_kb:,.1f} KB</span>",
-            unsafe_allow_html=True,
-        )
-        if remove_col.button("✕", key="remove_report_file", help="Remove file"):
-            st.session_state.pop("report_bytes", None)
-            st.session_state.pop("report_filename", None)
-            st.rerun()
-else:
-    uploaded_file = st.file_uploader(
-        "Upload an Excel report (.xlsx)", type=["xlsx", "xls"], label_visibility="collapsed",
-    )
-    if uploaded_file is not None:
-        st.session_state["report_bytes"] = uploaded_file.getvalue()
-        st.session_state["report_filename"] = uploaded_file.name
-        st.rerun()
-
-report_bytes = st.session_state.get("report_bytes")
-
-if report_bytes is None:
-    st.info("Upload an Excel report to generate the dashboard.")
-    st.stop()
-
-try:
-    excel_data = pd.ExcelFile(io.BytesIO(report_bytes))
-except Exception as e:
-    st.error(f"Could not read this file: {e}")
-    st.stop()
-
-# Prefer the main raw ticket sheet (has Status/Category/Modified columns);
-# skip empty "Comments" sheets that TDX exports often include.
-def looks_like_ticket_sheet(df):
-    cols = set(df.columns.astype(str))
-    return {"Status", "Category"}.issubset(cols) and len(df) > 0
-
-def find_header_row(sheet, max_scan=15):
-    """Some TDX weekly exports put a title row (e.g. the report name) above
-    the real column headers, which makes pandas read that title as the
-    header and every column comes back as "Unnamed: N". Scan the first few
-    rows for the one that actually contains "Status"/"Category" and use it
-    as the header instead of assuming row 0."""
-    preview = pd.read_excel(excel_data, sheet_name=sheet, header=None, nrows=max_scan)
-    for i, row in preview.iterrows():
-        values = {str(v).strip() for v in row.tolist()}
-        if {"Status", "Category"}.issubset(values):
-            return i
-    return 0
-
-candidate_sheets = []
-header_rows = {}
-for s in excel_data.sheet_names:
-    try:
-        header_rows[s] = find_header_row(s)
-        preview = pd.read_excel(excel_data, sheet_name=s, header=header_rows[s])
-        if looks_like_ticket_sheet(preview):
-            candidate_sheets.append(s)
-    except Exception:
-        continue
-
-if candidate_sheets:
-    default_sheet = candidate_sheets[0]
-else:
-    default_sheet = excel_data.sheet_names[0]
-
-sheet_name = st.selectbox(
-    "Select sheet",
-    excel_data.sheet_names,
-    index=excel_data.sheet_names.index(default_sheet),
+source_mode = st.radio(
+    "Source", ["Upload a new report", "Load saved reports"],
+    horizontal=True, label_visibility="collapsed",
 )
 
-df = pd.read_excel(excel_data, sheet_name=sheet_name, header=header_rows.get(sheet_name, 0))
-df.columns = [str(c).strip() for c in df.columns]
+df = None
+report_filename = None
+report_sheet_name = None
+report_raw_bytes = None
 
-if df.empty:
-    st.warning("This sheet has no data. Try selecting a different sheet above.")
-    st.stop()
+if source_mode == "Upload a new report":
+    # st.file_uploader loses its file when navigating to another page and back
+    # (the widget is torn down on unmount), so the raw bytes are cached in session
+    # state. Once a file is cached, a custom chip stands in for the native
+    # uploader so the page still visibly shows "a file is loaded" instead of an
+    # empty drop zone; the "x" clears it and brings the real uploader back.
+    st.markdown("Upload an Excel report (.xlsx)")
+
+    if st.session_state.get("report_bytes"):
+        size_kb = len(st.session_state["report_bytes"]) / 1024
+        with st.container(border=True):
+            icon_col, name_col, remove_col = st.columns([0.06, 0.84, 0.10])
+            icon_col.markdown(
+                f"""<svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                     style="margin-top:4px;">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                          stroke="{BYUH_RED}" stroke-width="1.5" stroke-linejoin="round"/>
+                    <path d="M14 2v6h6" stroke="{BYUH_RED}" stroke-width="1.5" stroke-linejoin="round"/>
+                </svg>""",
+                unsafe_allow_html=True,
+            )
+            name_col.markdown(
+                f"**{st.session_state['report_filename']}**  \n"
+                f"<span style='color:{pal['muted']}; font-size:0.8rem;'>{size_kb:,.1f} KB</span>",
+                unsafe_allow_html=True,
+            )
+            if remove_col.button("✕", key="remove_report_file", help="Remove file"):
+                st.session_state.pop("report_bytes", None)
+                st.session_state.pop("report_filename", None)
+                st.session_state.pop("saved_report_hash", None)
+                st.rerun()
+    else:
+        uploaded_file = st.file_uploader(
+            "Upload an Excel report (.xlsx)", type=["xlsx", "xls"], label_visibility="collapsed",
+        )
+        if uploaded_file is not None:
+            st.session_state["report_bytes"] = uploaded_file.getvalue()
+            st.session_state["report_filename"] = uploaded_file.name
+            st.rerun()
+
+    report_bytes = st.session_state.get("report_bytes")
+
+    if report_bytes is None:
+        st.info("Upload an Excel report to generate the dashboard.")
+        st.stop()
+
+    try:
+        excel_data = pd.ExcelFile(io.BytesIO(report_bytes))
+    except Exception as e:
+        st.error(f"Could not read this file: {e}")
+        st.stop()
+
+    # Prefer the main raw ticket sheet (has Status/Category/Modified columns);
+    # skip empty "Comments" sheets that TDX exports often include.
+    def looks_like_ticket_sheet(sheet_df):
+        cols = set(sheet_df.columns.astype(str))
+        return {"Status", "Category"}.issubset(cols) and len(sheet_df) > 0
+
+    def find_header_row(sheet, max_scan=15):
+        """Some TDX weekly exports put a title row (e.g. the report name) above
+        the real column headers, which makes pandas read that title as the
+        header and every column comes back as "Unnamed: N". Scan the first few
+        rows for the one that actually contains "Status"/"Category" and use it
+        as the header instead of assuming row 0."""
+        preview = pd.read_excel(excel_data, sheet_name=sheet, header=None, nrows=max_scan)
+        for i, row in preview.iterrows():
+            values = {str(v).strip() for v in row.tolist()}
+            if {"Status", "Category"}.issubset(values):
+                return i
+        return 0
+
+    candidate_sheets = []
+    header_rows = {}
+    for s in excel_data.sheet_names:
+        try:
+            header_rows[s] = find_header_row(s)
+            preview = pd.read_excel(excel_data, sheet_name=s, header=header_rows[s])
+            if looks_like_ticket_sheet(preview):
+                candidate_sheets.append(s)
+        except Exception:
+            continue
+
+    if candidate_sheets:
+        default_sheet = candidate_sheets[0]
+    else:
+        default_sheet = excel_data.sheet_names[0]
+
+    sheet_name = st.selectbox(
+        "Select sheet",
+        excel_data.sheet_names,
+        index=excel_data.sheet_names.index(default_sheet),
+    )
+
+    df = pd.read_excel(excel_data, sheet_name=sheet_name, header=header_rows.get(sheet_name, 0))
+    df.columns = [str(c).strip() for c in df.columns]
+
+    if df.empty:
+        st.warning("This sheet has no data. Try selecting a different sheet above.")
+        st.stop()
+
+    report_filename = st.session_state["report_filename"]
+    report_sheet_name = sheet_name
+    report_raw_bytes = report_bytes
+
+else:  # Load saved reports
+    try:
+        conn = db.get_conn()
+        saved = db.list_reports(conn)
+    except Exception as e:
+        st.error(f"Could not reach the report library: {e}")
+        st.stop()
+
+    if saved.empty:
+        st.info("No saved reports yet. Upload one first — it'll be saved here automatically.")
+        st.stop()
+
+    options = {
+        row.id: f"{row.filename} — {row.uploaded_at:%Y-%m-%d} ({row.row_count:,} tickets)"
+        for row in saved.itertuples()
+    }
+    selected_ids = st.multiselect(
+        "Saved reports", options.keys(), format_func=lambda i: options[i],
+    )
+    if st.button("Load selected", type="primary", disabled=not selected_ids):
+        st.session_state["loaded_report_ids"] = selected_ids
+
+    loaded_ids = st.session_state.get("loaded_report_ids")
+    if not loaded_ids:
+        st.info("Select one or more saved reports above, then click Load selected.")
+        st.stop()
+
+    df = db.load_tickets(conn, loaded_ids)
+    if df.empty:
+        st.warning("The selected reports have no ticket rows.")
+        st.stop()
 
 # -----------------------------
 # Detect TDX ticket columns
@@ -133,6 +184,23 @@ if has_modified:
 for col in ["Category", "Status", "Primary Responsibility"]:
     if col in df.columns:
         df[col] = normalize_text_column(df[col])
+
+# Auto-save newly uploaded reports to the library. Re-uploading the exact
+# same file is a no-op (dedup is by content hash) rather than creating
+# duplicate tickets.
+if source_mode == "Upload a new report":
+    current_hash = db.file_hash(report_raw_bytes)
+    if st.session_state.get("saved_report_hash") != current_hash:
+        try:
+            conn = db.get_conn()
+            _, is_new = db.save_report(conn, report_filename, report_sheet_name, df, report_raw_bytes)
+            st.session_state["saved_report_hash"] = current_hash
+            if is_new:
+                st.caption("Saved to report library.")
+            else:
+                st.caption("This exact report is already in the library.")
+        except Exception as e:
+            st.caption(f"Could not save to report library: {e}")
 
 # -----------------------------
 # Sidebar filters
