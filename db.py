@@ -4,6 +4,7 @@ reloaded later, individually or combined, instead of re-uploading every time.
 
 import hashlib
 import json
+import time
 
 import pandas as pd
 import streamlit as st
@@ -46,6 +47,27 @@ PROMOTED_COLUMNS = {
 
 def get_conn():
     return st.connection("neon", type="sql")
+
+
+def call_with_retry(fn, attempts=4, backoff=1.0):
+    """Retry a DB call before giving up.
+
+    Neon's compute auto-suspends after a few idle minutes, and a Streamlit
+    Cloud app that's been asleep cold-starts its container on the next visit —
+    either can make the very first connection attempt fail while the database
+    resumes, even though a rerun a couple seconds later would succeed. Retry
+    with backoff so that transient window doesn't surface as a user-facing
+    error.
+    """
+    last_err = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            if attempt < attempts - 1:
+                time.sleep(backoff * (attempt + 1))
+    raise last_err
 
 
 def init_schema(conn):

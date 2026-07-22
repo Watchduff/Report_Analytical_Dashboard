@@ -138,9 +138,13 @@ if source_mode == "Upload a new report":
     report_raw_bytes = report_bytes
 
 else:  # Load saved reports
-    try:
+    def _connect_and_list():
         conn = db.get_conn()
-        saved = db.list_reports(conn)
+        return conn, db.list_reports(conn)
+
+    try:
+        with st.spinner("Connecting to report library…"):
+            conn, saved = db.call_with_retry(_connect_and_list)
     except Exception as e:
         st.error(f"Could not reach the report library: {e}")
         st.stop()
@@ -191,9 +195,12 @@ for col in ["Category", "Status", "Primary Responsibility"]:
 if source_mode == "Upload a new report":
     current_hash = db.file_hash(report_raw_bytes)
     if st.session_state.get("saved_report_hash") != current_hash:
-        try:
+        def _save():
             conn = db.get_conn()
-            _, is_new = db.save_report(conn, report_filename, report_sheet_name, df, report_raw_bytes)
+            return db.save_report(conn, report_filename, report_sheet_name, df, report_raw_bytes)
+
+        try:
+            _, is_new = db.call_with_retry(_save)
             st.session_state["saved_report_hash"] = current_hash
             if is_new:
                 st.caption("Saved to report library.")
