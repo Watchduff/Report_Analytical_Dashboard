@@ -46,7 +46,15 @@ PROMOTED_COLUMNS = {
 
 
 def get_conn():
-    return st.connection("neon", type="sql")
+    # Neon closes idle connections when its compute auto-suspends. Without
+    # pool_pre_ping, SQLAlchemy's cached engine hands out those dead pooled
+    # connections as-is instead of testing and transparently replacing them,
+    # so a query minutes after the last one throws "server closed the
+    # connection unexpectedly". pool_recycle proactively retires connections
+    # before that happens; pool_pre_ping catches whatever slips through.
+    return st.connection(
+        "neon", type="sql", pool_pre_ping=True, pool_recycle=280
+    )
 
 
 def call_with_retry(fn, attempts=4, backoff=1.0):

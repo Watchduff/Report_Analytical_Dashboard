@@ -168,7 +168,12 @@ else:  # Load saved reports
         st.info("Select one or more saved reports above, then click Load selected.")
         st.stop()
 
-    df = db.load_tickets(conn, loaded_ids)
+    try:
+        df = db.call_with_retry(lambda: db.load_tickets(conn, loaded_ids))
+    except Exception as e:
+        st.error(f"Could not load the selected reports: {e}")
+        st.stop()
+
     if df.empty:
         st.warning("The selected reports have no ticket rows.")
         st.stop()
