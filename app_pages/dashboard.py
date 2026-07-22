@@ -160,16 +160,13 @@ else:  # Load saved reports
     selected_ids = st.multiselect(
         "Saved reports", options.keys(), format_func=lambda i: options[i],
     )
-    if st.button("Load selected", type="primary", disabled=not selected_ids):
-        st.session_state["loaded_report_ids"] = selected_ids
-
-    loaded_ids = st.session_state.get("loaded_report_ids")
-    if not loaded_ids:
-        st.info("Select one or more saved reports above, then click Load selected.")
+    if not selected_ids:
+        st.info("Select one or more saved reports above to load them.")
         st.stop()
 
     try:
-        df = db.call_with_retry(lambda: db.load_tickets(conn, loaded_ids))
+        with st.spinner("Loading selected reports…"):
+            df = db.call_with_retry(lambda: db.load_tickets(conn, selected_ids))
     except Exception as e:
         st.error(f"Could not load the selected reports: {e}")
         st.stop()
