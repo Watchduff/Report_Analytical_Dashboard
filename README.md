@@ -21,8 +21,9 @@ A Streamlit dashboard for BYU–Hawaii's Office of Information Technology to exp
 **Report library** (`db.py`)
 - Backed by a Neon (serverless Postgres) database.
 - Uploading a report auto-saves it — deduplicated by a hash of the file's contents, so re-uploading the same file is a no-op rather than creating duplicate tickets.
-- A "Load saved reports" mode lets you multi-select previously saved reports and load them combined into one filtered view (each row tagged with which source report it came from).
+- A "Load saved reports" mode lets you multi-select previously saved reports; selecting/deselecting loads them immediately (combined into one filtered view, each row tagged with which source report it came from) — no separate load button.
 - Schema: a `reports` table (one row per upload: filename, sheet, hash, upload time, row count) and a `tickets` table (one row per ticket, with `Status`/`Category`/`Primary Responsibility`/`Modified`/`Title` as queryable columns plus the full original row preserved as JSON, so unexpected columns aren't lost).
+- Connections are resilient to Neon's auto-suspend: dead pooled connections are detected and replaced (`pool_pre_ping`/`pool_recycle`), and queries retry with backoff to survive cold-start races.
 
 **Shared theming** (`common.py`, `.streamlit/config.toml`)
 - BYU–Hawaii brand colors (red/gold), light/dark palettes, and consistent chart styling across both pages.
